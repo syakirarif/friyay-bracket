@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+:root {
+  /* Star Wars palette */
+  --color-saber-blue: #4cb8ff;
+  --color-saber-red: #ff3b30;
+  --color-saber-green: #6cf088;
+  --color-imperial-gray: #2a2d34;
+  --color-tatooine-sand: #c1a875;
+
+  /* Space backdrop */
+  --color-space-deep: #03050d;
+  --color-space-mid: #060a1c;
+
+  /* Text */
+  --color-background: var(--color-space-deep);
+  --color-foreground: #e6e9f2;
+}
+
+@theme inline {
+  --color-background: var(--color-background);
+  --color-foreground: var(--color-foreground);
+  --color-saber-blue: var(--color-saber-blue);
+  --color-saber-red: var(--color-saber-red);
+  --color-saber-green: var(--color-saber-green);
+  --color-imperial-gray: var(--color-imperial-gray);
+  --color-tatooine-sand: var(--color-tatooine-sand);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-orbitron);
+}
+
+html,
+body {
+  background-color: var(--color-space-deep);
+  color: var(--color-foreground);
+}
+
+body {
+  background-image:
+    url("/stars.svg"),
+    radial-gradient(
+      ellipse at top,
+      var(--color-space-mid) 0%,
+      var(--color-space-deep) 70%
+    );
+  background-attachment: fixed;
+  background-size:
+    600px 600px,
+    100% 100%;
+  background-repeat: repeat, no-repeat;
+}
+
+/* Headings use Orbitron; widely-applied via .font-display utility too. */
+h1,
+h2,
+h3 {
+  font-family: var(--font-orbitron), system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+/* ---------- Saber glow utilities ---------- */
+
+.saber-glow-blue {
+  background-color: var(--color-saber-blue);
+  color: #050a14;
+  transition:
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+.saber-glow-blue:hover:not(:disabled) {
+  box-shadow:
+    0 0 12px 1px rgba(76, 184, 255, 0.6),
+    0 0 28px 6px rgba(76, 184, 255, 0.35);
+}
+
+.saber-glow-red {
+  background-color: var(--color-saber-red);
+  color: #fff;
+  transition:
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+.saber-glow-red:hover:not(:disabled) {
+  box-shadow:
+    0 0 12px 1px rgba(255, 59, 48, 0.6),
+    0 0 28px 6px rgba(255, 59, 48, 0.35);
+}
+
+.saber-outline-blue {
+  border: 1px solid rgba(76, 184, 255, 0.45);
+  color: var(--color-saber-blue);
+  transition: box-shadow 0.18s ease;
+}
+.saber-outline-blue:hover:not(:disabled) {
+  background-color: rgba(76, 184, 255, 0.08);
+  box-shadow: 0 0 14px 2px rgba(76, 184, 255, 0.25);
+}
+
+.saber-outline-red {
+  border: 1px solid rgba(255, 59, 48, 0.45);
+  color: var(--color-saber-red);
+  transition: box-shadow 0.18s ease;
+}
+.saber-outline-red:hover:not(:disabled) {
+  background-color: rgba(255, 59, 48, 0.08);
+  box-shadow: 0 0 14px 2px rgba(255, 59, 48, 0.25);
+}
+
+/* ---------- Crawl animation ---------- */
+/* Brief opening crawl for landing + display lobby title block. */
+
+@keyframes crawl-in {
+  0% {
+    transform: perspective(900px) rotateX(28deg) translateY(60vh) scale(0.6);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    transform: perspective(900px) rotateX(0deg) translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.crawl-in {
+  animation: crawl-in 1.6s ease-out both;
+  transform-origin: 50% 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crawl-in {
+    animation: none;
+  }
+}
