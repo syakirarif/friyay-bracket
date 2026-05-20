@@ -661,12 +661,42 @@ Living log of what was actually built per phase. Fill in **Implementation Result
 
 ## Phase 8 — Deployment
 
-**Status:** ⬜ Not started
-**Started:** —
-**Completed:** —
+**Status:** 🟡 In progress — code-side prep done; live deploy pending the host
+**Started:** 2026-05-20
+**Completed:** — (waits on GitHub push + Vercel import by the host)
 
-**Implementation Result**
-_(Vercel URL, env vars set, Supabase Cloud migration run, smoke-test outcome with real phones + laptop + TV, README link.)_
+**Implementation Result (code side, done)**
+- **`middleware.ts` → `proxy.ts`** to clear the Next 16 deprecation that's been warning on every build since Phase 6. Per the official codemod guidance (https://nextjs.org/docs/messages/middleware-to-proxy), both the filename **and** the exported function name change: `export async function middleware(req)` → `export async function proxy(req)`. The `config.matcher` and runtime behavior are unchanged. Build output now reads `ƒ Proxy (Middleware)` with no warning.
+- **[README.md](README.md)** rewritten from the create-next-app template to a focused ops doc:
+  - Stack + route table.
+  - First-time Supabase setup: paste both migrations (`0001_init.sql`, `0002_declare_winner.sql`) into the Dashboard SQL Editor in order; realtime publication is set up by the migration itself.
+  - Vercel import recipe with the six env vars and the explicit "no `/rest/v1/` suffix" note (carried over from Phase 3's `.env.local` correction).
+  - Operations runbook: how to start a fresh session (`/admin` Reset button or `POST /api/admin/reset`), how to rotate the admin password / cookie secret, how to view Vercel + Supabase logs.
+  - Day-of-event checklist (pulled from the plan's Phase 8 notes plus carried-forward observations: pre-load `/display`, dry-run 30 min before, QR scan range check, `NEXT_PUBLIC_BASE_URL` must be the deployed origin, not localhost).
+  - Local-dev notes captured all the recurring workarounds from this build: stale-`next dev` PID-kill recipe, pnpm/Node TLS interception fixes, pnpm 11 deps-check toggle.
+- **`.gitignore` adjusted**: added `!.env.example` whitelist (so the env template ships) and added `.claude/` (Claude Code's local settings).
+- **Repo initialized** with `git init -b main` (Phase 1 had flagged "no git repo yet"). Initial commit `3f4752a` on `main` covers 50 files: app/, components/, lib/, supabase/migrations/, scripts/, public/, proxy.ts, README, plan, configs. `.env.local` is correctly excluded; `.env.example`, `.rtk/filters.toml` (RTK explicitly tags it commit-worthy), `CLAUDE.md`, and `implementation_plan.md` are tracked.
+- **`pnpm exec next build` passes** with the same 14 routes as before the rename. No regressions.
 
-**Notes for Upcoming Phase**
-_(Day-of-event checklist outcome, post-event cleanup actions, anything to carry into a future iteration.)_
+**Implementation Result (deploy side — to-do by the host)**
+1. Create the GitHub repo and `git remote add origin … && git push -u origin main`.
+2. Import the repo at https://vercel.com/new.
+3. Set the six env vars in Vercel **Production** environment:
+   - `NEXT_PUBLIC_SUPABASE_URL` (bare origin)
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY` (server-side only)
+   - `ADMIN_PASSWORD` (**rotate from the dev test value `friday-test-2026`**)
+   - `ADMIN_COOKIE_SECRET` (**rotate from the dev placeholder**)
+   - `NEXT_PUBLIC_BASE_URL` = the Vercel-assigned origin (or custom domain)
+4. Confirm both migrations have been run against the production Supabase project (same project as dev is fine).
+5. Smoke-test on real hardware: laptop on `/admin/login`, projector on `/display`, ≥2 phones on `/join` via the QR.
+6. Confirm "Reset session" returns the session to `lobby` for a second run-through.
+
+**Notes for Upcoming Phase (post-event)**
+- **Secret rotation reminder:** the dev `.env.local` still has `ADMIN_PASSWORD=friday-test-2026` and `ADMIN_COOKIE_SECRET=phase4-dev-secret-not-for-production-…`. Vercel env vars must use different values. The README's "Rotate the admin password" section walks through this.
+- **Stale-`next dev` pattern**: documented in the README "Local dev notes" so this doesn't bite a future contributor mid-event. The fix is `taskkill /f /im node.exe` on Windows.
+- **Corporate TLS workarounds (Accenture network)** are documented in the README but **must not** be applied on the production deploy. `NODE_TLS_REJECT_UNAUTHORIZED=0` and `strict-ssl=false` are dev-only — Vercel and Supabase Cloud have valid certs.
+- **Day-of dry-run scope:** 5–10 throwaway joins → close registration → assign 4 squads → generate bracket → click one winner → reset. Validates auth, Realtime fan-out, group sizing, and the network capacity, in about 5 minutes.
+- **QR vs. base URL pitfall:** `NEXT_PUBLIC_BASE_URL` decides where the QR points. If it's set to localhost in production by accident, phones on the venue Wi-Fi will fail to load `/join`. The README calls this out twice.
+- **CSV export (not in scope) recipe:** README ships a one-line SQL `SELECT` against the Supabase project for participants + their squad + elimination flag. Run before clicking Reset if you want the audience list.
+- **Connector lines on the bracket and sound effects** are still deferred. Neither blocks the event. If they're wanted, both are scoped in the Phase 5 and Phase 7 journal entries respectively.
