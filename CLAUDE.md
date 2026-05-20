@@ -2,32 +2,137 @@
 
 **Tagline:** *May the FriYAY be with You!*
 
-A live-event web app where the host shows a QR code, audience joins from phones with nicknames, then the app randomly assigns everyone to themed Star Wars squads and runs a single-elimination bracket between those squads in real time.
+Live-event web app: host shows a QR, audience joins from phones with nicknames, app randomly assigns them to themed Star Wars squads, then runs a single-elimination bracket between those squads in real time.
 
-## Authoritative plan
-The full design, data model, routes, and phased build steps live in [implementation_plan.md](implementation_plan.md). Treat that file as source of truth — update it when scope changes.
+## Status
+
+Phases 1–7 complete; Phase 8 code-side prep done (rename to `proxy.ts`, README, git init at `main` / commit `3f4752a`). Live deploy to Vercel pending the host. Per-phase journal in [implementation_plan.md](implementation_plan.md).
+
+## Source-of-truth docs
+
+| Doc | What lives there |
+|---|---|
+| [implementation_plan.md](implementation_plan.md) | Design, data model, route table, per-phase journal entries with decisions + workarounds. **Treat as source of truth; update on scope change.** |
+| [README.md](README.md) | Ops runbook: setup, deploy, env vars, day-of-event checklist, local-dev workarounds. |
+| This file | Quick reference for future Claude sessions. |
 
 ## Locked decisions (do not re-litigate without the user)
 - **Each group = one team** in the bracket. Declaring a winner advances the whole squad.
 - **Group sizes may differ by ±1** when audience count doesn't divide evenly.
-- **Admin auth:** single password from `ADMIN_PASSWORD` env var, cookie-gated middleware.
+- **Admin auth:** single password from `ADMIN_PASSWORD` env var, gated by [proxy.ts](proxy.ts) (Edge runtime, HMAC-signed cookie via [lib/adminAuth.ts](lib/adminAuth.ts)).
 - **Bracket size:** restricted to powers of 2 — admin picks **2, 4, 8, or 16** groups.
 - **Single global session** at any time; admin can reset to start a fresh round.
 - **Three UIs:** `/join` + `/joined` (audience phones), `/admin` (host laptop), `/display` (big-screen, read-only).
-- **Audience confirmation page** shows nickname + live group/bracket status once those exist.
+- **`session.state ∈ {lobby, grouping, bracket, finished}`.** No `grouped` sub-state — group existence is the readiness gate from `grouping` to bracket generation.
+- **Atomic multi-row writes via Postgres functions**, not the JS client: `declare_winner` and `undo_winner` in [supabase/migrations/0002_declare_winner.sql](supabase/migrations/0002_declare_winner.sql). They use `FOR UPDATE` row locks + SQLSTATE `P0001`/`P0002` for domain/not-found errors, mapped to HTTP 409/404 by the route handlers.
+- **Group names with sigils** baked into the string itself (e.g. `"🪐 Rebel Alliance"`) in [lib/groupNames.ts](lib/groupNames.ts) — DB rows store the full string. Strip the leading emoji + space if a plain name is needed.
 
-## Stack & hosting
-- Next.js (App Router) + React + TypeScript + Tailwind CSS
-- Supabase Postgres + Realtime (subscriptions on `session`, `participant`, `group`, `match`)
-- Hosting: Vercel (web) + Supabase Cloud (DB)
-- QR: `qrcode.react`; validation: `zod`
+## Stack
 
-## Theme
-Star Wars. Deep-space background, lightsaber-glow buttons (blue primary, red destructive), `Orbitron` headings, themed squad names (Rebel Alliance, Galactic Empire, Jedi Order, Sith Order, etc.) from `lib/groupNames.ts`.
+- Next.js 16.2.6 (App Router, Turbopack) · React 19.2.4 · TypeScript 5.9 · Tailwind v4
+- Supabase JS 2.106 (`@supabase/supabase-js` + `@supabase/ssr`) — Postgres + Realtime
+- `qrcode.react`, `zod`, `server-only`
+- `next/font` (self-hosted Orbitron for headings)
+- pnpm 11 · Hosting: Vercel + Supabase Cloud
+
+## Realtime channels (defined in [lib/realtime.ts](lib/realtime.ts))
+
+| Constant | Channel | Listeners |
+|---|---|---|
+| `CHANNELS.session` | `session:current` | `session` table |
+| `CHANNELS.participants` | `participants:all` | `participant` table |
+| `CHANNELS.bracket` | `bracket:all` | `group` + `match` tables |
+
+`/joined`, `/admin`, `/display` all subscribe to the same three and coarse-refetch on any event.
+
+## Theme tokens (in [app/globals.css](app/globals.css) via Tailwind v4 `@theme inline`)
+
+`saber-blue` (primary), `saber-red` (destructive), `saber-green` (advancing), `imperial-gray` (surfaces), `tatooine-sand` (highlights/champion). Utility classes: `saber-glow-{blue,red}` and `saber-outline-{blue,red}` for hover-glow buttons. `.crawl-in` keyframe on landing + display lobby (motion-reduce safe). Starfield: [public/stars.svg](public/stars.svg) tiled with a radial gradient.
 
 ## Env vars
-`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (server-only), `ADMIN_PASSWORD`, `ADMIN_COOKIE_SECRET`, `NEXT_PUBLIC_BASE_URL`.
-Never let the service-role key reach the browser — keep it inside files that import `"server-only"`.
+
+| Var | Notes |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | **Bare origin only** — no `/rest/v1/` suffix. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only. Keep inside files that import `"server-only"` (`lib/db.ts`, `lib/supabase/server.ts`, API routes). Never reach the browser. |
+| `ADMIN_PASSWORD` | Host login. |
+| `ADMIN_COOKIE_SECRET` | Long random string. HMAC-SHA256 key for the admin cookie. |
+| `NEXT_PUBLIC_BASE_URL` | Origin used to build the QR's join URL. Local: `http://localhost:3000`. Production: Vercel origin. The QR `falls back to window.location.origin` at runtime, so a stale value still works on the same host. |
+
+## File layout (after Phase 8)
+
+```
+app/
+  page.tsx                       landing (crawl animation)
+  join/page.tsx                  audience nickname form
+  joined/page.tsx                audience live status
+  admin/login/{page,actions}.ts  password form + server action
+  admin/page.tsx                 host control bridge
+  display/page.tsx               big screen (?demo=lobby|grouping|bracket|finished)
+  api/
+    join/route.ts                public — register
+    admin/
+      start-grouping/route.ts
+      generate-groups/route.ts
+      generate-bracket/route.ts
+      reset/route.ts
+      match/[id]/winner/route.ts   → rpc declare_winner
+      match/[id]/undo/route.ts     → rpc undo_winner
+components/
+  Bracket.tsx                    shared (admin | display modes)
+  QRJoinCode.tsx
+lib/
+  adminAuth.ts                   HMAC sign/verify (Edge-safe Web Crypto)
+  db.ts                          typed helpers ("server-only")
+  groupNames.ts                  16 themed squad names with sigils
+  realtime.ts                    channel constants
+  supabase/{server,browser}.ts   lazy factories
+proxy.ts                         admin cookie gate (formerly middleware.ts)
+supabase/migrations/
+  0001_init.sql                  schema + RLS + realtime + seed
+  0002_declare_winner.sql        atomic winner/undo functions
+public/stars.svg                 starfield tile
+scripts/
+  verify-phase2.mjs              schema + Realtime smoke
+  verify-phase5.mjs              bracket flow (24-check)
+  smoke-phase5.sh                bracket setup helper
+```
+
+## Verification commands
+
+```bash
+pnpm exec tsc --noEmit              # type-check (silent = clean)
+pnpm exec next build                # production build
+NODE_TLS_REJECT_UNAUTHORIZED=0 node --env-file=.env.local scripts/verify-phase2.mjs
+ADMIN_COOKIE=<value> NODE_TLS_REJECT_UNAUTHORIZED=0 node --env-file=.env.local scripts/verify-phase5.mjs
+```
+
+The verify scripts hit the live Supabase project (corp TLS workaround needed on Accenture network). They're re-runnable; phase 5 needs a populated bracket — run `scripts/smoke-phase5.sh` first.
+
+## Dev-environment workarounds (recurring on this machine)
+
+- **pnpm TLS interception** (Accenture): `pnpm config set strict-ssl false`.
+- **Node `fetch` TLS interception**: prefix scripts with `NODE_TLS_REJECT_UNAUTHORIZED=0`. The Next dev server reading `.env.local` also needs this when calling Supabase.
+- **pnpm 11 auto deps-check** errors on `ERR_PNPM_IGNORED_BUILDS` (sharp, unrs-resolver): `pnpm config set verify-deps-before-run false`.
+- **Stale `next dev` on Windows** survives Ctrl-C and harness `TaskStop`. Find PID: `netstat -ano | findstr :3456`. Kill: `MSYS_NO_PATHCONV=1 taskkill /PID <pid> /F` (or nuke all: `taskkill /f /im node.exe`).
+- **All four workarounds are dev-only** — never apply in CI / Vercel.
+
+## What's intentionally deferred (with recipes in the journal)
+
+- **SVG connector lines** between bracket rounds (Phase 5 / Phase 7 note). Functional without; visual polish only.
+- **Sound effects** for declare-winner / generate-bracket (Phase 7 note). Plan marked optional; no audio assets specified.
+- **`UNIQUE INDEX (lower(nickname))`** on `participant` (Phase 3 note). Race window between dup check and insert is rare at event scale.
+- **CSV export** of participants + squads before reset (Phase 8 note). One-line SQL in the README.
+
+## Conventions when changing the code
+
+- **Edits to `session.state`'s allowed values must update the CHECK constraint** in `0001_init.sql` (currently `lobby | grouping | bracket | finished`).
+- **Adding a column referenced from a Phase ≥5 surface** = bump migration number, don't edit `0001_init.sql` in place (already deployed). Example: `champion_group_id` was added in Phase 2 *before* deploy and lives in `0001`; anything after deploy needs a new file.
+- **API routes mutate via the service-role client** (`getSupabaseAdmin()`), which bypasses RLS. Don't add `SECURITY DEFINER` to Postgres functions unless anon needs to call them.
+- **Middleware/proxy must stay Edge-compatible** — only Web Crypto + `TextEncoder` in `lib/adminAuth.ts`. Don't import Node's `crypto` or anything from `lib/db.ts` from `proxy.ts`.
+- **All three live views (`/joined`, `/admin`, `/display`) refetch coarsely** on any Realtime event. Keep that pattern — surgical state updates are not worth the complexity at ≤50 rows.
+- **Dev port is 3456** by session convention (3000 was taken). Just `pnpm dev` for the event.
 
 ---
 
