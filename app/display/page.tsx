@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 
@@ -343,6 +344,21 @@ function BracketView({ live }: { live: LiveState }) {
           championGroupId={live.session.champion_group_id}
           membersByGroup={membersByGroup}
         />
+      </div>
+
+      <div className="absolute bottom-8 right-10 z-10 flex gap-3">
+        <Link
+          href="/display/title"
+          className="saber-outline-blue rounded-full px-5 py-2 text-sm font-semibold uppercase tracking-widest"
+        >
+          ✨ Title
+        </Link>
+        <Link
+          href="/display/birthday"
+          className="saber-outline-blue rounded-full px-5 py-2 text-sm font-semibold uppercase tracking-widest"
+        >
+          🎂 Birthday
+        </Link>
       </div>
 
       {live.session.state === "finished" && champion && (

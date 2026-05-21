@@ -194,7 +194,7 @@ export default function AdminPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10">
-      <header className="mb-8 flex items-baseline justify-between">
+      <header className="mb-6 flex items-baseline justify-between">
         <h1 className="text-2xl tracking-tight">Command bridge</h1>
         <p className="text-xs uppercase tracking-widest text-zinc-400">
           State: <span className="font-mono text-saber-blue">{session.state}</span>
@@ -203,6 +203,28 @@ export default function AdminPage() {
           )}
         </p>
       </header>
+
+      <nav className="mb-8 flex flex-wrap gap-2">
+        {(
+          [
+            { href: "/join", label: "Join" },
+            { href: "/joined", label: "Joined" },
+            { href: "/display", label: "Display" },
+            { href: "/display/birthday", label: "Birthday" },
+            { href: "/display/title", label: "Title" },
+          ] as const
+        ).map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="saber-outline-blue rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-widest"
+          >
+            {link.label} ↗
+          </a>
+        ))}
+      </nav>
 
       {error && (
         <p
