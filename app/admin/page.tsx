@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Bracket, type BracketMatch } from "@/components/Bracket";
 import { QRJoinCode } from "@/components/QRJoinCode";
@@ -14,6 +14,7 @@ interface Session {
   state: SessionState;
   group_count: number | null;
   champion_group_id: string | null;
+  match_duration_seconds: number;
 }
 interface Participant {
   id: string;
@@ -42,6 +43,18 @@ export default function AdminPage() {
   const [busyMatchId, setBusyMatchId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [dummyCount, setDummyCount] = useState("5");
+  const [durationInput, setDurationInput] = useState("");
+  const durationInitialized = useRef(false);
+
+  // First time the session arrives, seed the minutes input from it.
+  // Subsequent realtime updates should not trample what the admin is typing.
+  useEffect(() => {
+    if (session && !durationInitialized.current) {
+      setDurationInput(String(Math.round(session.match_duration_seconds / 60)));
+      durationInitialized.current = true;
+    }
+  }, [session]);
 
   useEffect(() => {
     const supabase = getSupabaseBrowser();
@@ -110,6 +123,12 @@ export default function AdminPage() {
     }
     return map;
   }, [participants]);
+
+  // Waiting list = group-less participants once the session has moved past lobby.
+  const waitlist = useMemo(() => {
+    if (!session || session.state === "lobby") return [];
+    return participants.filter((p) => p.group_id === null);
+  }, [participants, session]);
 
   async function callAdmin(
     label: string,
@@ -225,17 +244,54 @@ export default function AdminPage() {
         <button
           type="button"
           disabled={!inLobby || participants.length < 2 || busy !== null}
-          onClick={() => callAdmin("close", "/api/admin/start-grouping")}
+          onClick={() => callAdmin("start", "/api/admin/start-grouping")}
           className="saber-glow-blue mt-6 rounded-full px-5 py-2 text-xs font-semibold uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {busy === "close" ? "Closing…" : "Close registration"}
+          {busy === "start" ? "Starting…" : "Start session"}
         </button>
+
+        <div className="mt-6 border-t border-imperial-gray/40 pt-4">
+          <p className="text-xs uppercase tracking-widest text-zinc-500">
+            Dev: seed dummy pilots
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <label className="text-sm">
+              <span className="block text-zinc-500">Count</span>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={dummyCount}
+                onChange={(e) => setDummyCount(e.target.value)}
+                disabled={busy !== null}
+                className="mt-1 w-24 rounded-md border border-saber-blue/40 bg-imperial-gray/50 px-3 py-1.5 text-zinc-100"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={
+                busy !== null ||
+                !Number.isInteger(Number(dummyCount)) ||
+                Number(dummyCount) < 1 ||
+                Number(dummyCount) > 50
+              }
+              onClick={() =>
+                callAdmin("seed", "/api/admin/seed-participants", {
+                  count: Number(dummyCount),
+                })
+              }
+              className="saber-outline-blue rounded-full px-5 py-2 text-xs font-semibold uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {busy === "seed" ? "Seeding…" : "Generate dummies"}
+            </button>
+          </div>
+        </div>
       </section>
 
       {/* Section 2: Group setup */}
       <section
         className={`mb-10 rounded-lg border p-5 ${
-          inGrouping
+          inGrouping || inBracket
             ? "border-saber-blue/25"
             : "border-imperial-gray/40 opacity-60"
         }`}
@@ -304,7 +360,7 @@ export default function AdminPage() {
                       <span className="text-saber-blue">{g.name}</span>
                     </span>
                     <span className="text-xs text-zinc-500">
-                      {members.length}
+                      {members.length} / 5
                     </span>
                   </p>
                   <ul className="mt-1 text-sm text-zinc-200">
@@ -316,6 +372,46 @@ export default function AdminPage() {
               );
             })}
           </ul>
+        )}
+
+        {waitlist.length > 0 && (
+          <div className="mt-6 rounded-md border border-tatooine-sand/40 bg-tatooine-sand/5 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <p className="text-sm font-semibold uppercase tracking-widest text-tatooine-sand">
+                Waiting list ({waitlist.length})
+              </p>
+              <button
+                type="button"
+                disabled={
+                  busy !== null ||
+                  !groupsExist ||
+                  !(inGrouping || inBracket)
+                }
+                onClick={() =>
+                  callAdmin("assignWaitlist", "/api/admin/assign-waitlist")
+                }
+                className="saber-glow-blue rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {busy === "assignWaitlist"
+                  ? "Assigning…"
+                  : "Assign waiting list"}
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-zinc-400">
+              Fills eligible squads up to 5 each. Squads in a running or
+              finished match are skipped.
+              {inGrouping
+                ? " Overflow mints new squads."
+                : " Overflow stays on the waitlist."}
+            </p>
+            <ul className="mt-3 grid gap-x-4 gap-y-0.5 text-sm text-zinc-200 sm:grid-cols-2 lg:grid-cols-3">
+              {waitlist.map((p) => (
+                <li key={p.id} className="font-mono">
+                  {p.nickname}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </section>
 
@@ -353,6 +449,50 @@ export default function AdminPage() {
                 </span>
               </p>
             )}
+
+            <div className="mt-4 flex flex-wrap items-end gap-3 rounded-md border border-imperial-gray/50 bg-imperial-gray/20 p-3">
+              <label className="text-sm">
+                <span className="block text-zinc-500">
+                  Minutes per match
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={durationInput}
+                  onChange={(e) => setDurationInput(e.target.value)}
+                  disabled={busy !== null}
+                  className="mt-1 w-24 rounded-md border border-saber-blue/40 bg-imperial-gray/50 px-3 py-1.5 text-zinc-100"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={
+                  busy !== null ||
+                  !Number.isFinite(Number(durationInput)) ||
+                  Number(durationInput) < 1 ||
+                  Number(durationInput) > 60 ||
+                  Math.round(Number(durationInput) * 60) ===
+                    session.match_duration_seconds
+                }
+                onClick={() =>
+                  callAdmin("duration", "/api/admin/timer-duration", {
+                    seconds: Math.round(Number(durationInput) * 60),
+                  })
+                }
+                className="saber-outline-blue rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {busy === "duration" ? "Saving…" : "Save duration"}
+              </button>
+              <p className="text-xs text-zinc-500">
+                Current:{" "}
+                <span className="font-mono text-zinc-300">
+                  {Math.round(session.match_duration_seconds / 60)} min
+                </span>{" "}
+                · applies to matches started after save.
+              </p>
+            </div>
+
             <div className="mt-4">
               <Bracket
                 mode="admin"
@@ -367,6 +507,12 @@ export default function AdminPage() {
                 }
                 onUndoWinner={(matchId) =>
                   callMatch(`/api/admin/match/${matchId}/undo`, matchId)
+                }
+                onStartMatch={(matchId) =>
+                  callMatch(`/api/admin/match/${matchId}/start`, matchId)
+                }
+                onCancelMatch={(matchId) =>
+                  callMatch(`/api/admin/match/${matchId}/cancel`, matchId)
                 }
               />
             </div>

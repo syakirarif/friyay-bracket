@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSession, listParticipants } from "@/lib/db";
+import { listParticipants } from "@/lib/db";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 const BodySchema = z.object({
@@ -11,6 +11,8 @@ const BodySchema = z.object({
     .pipe(z.string().min(1).max(24)),
 });
 
+// Joining is open in every session state. Late arrivals get group_id = NULL,
+// which keeps them out of any already-deployed squads / bracket.
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -27,14 +29,6 @@ export async function POST(req: Request) {
     );
   }
   const { nickname } = parsed.data;
-
-  const session = await getSession();
-  if (session.state !== "lobby") {
-    return NextResponse.json(
-      { error: "Registration is closed. The mission has already begun." },
-      { status: 409 },
-    );
-  }
 
   const participants = await listParticipants();
   const target = nickname.toLowerCase();

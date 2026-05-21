@@ -193,11 +193,26 @@ export default function JoinedPage() {
         </p>
       )}
 
-      {session.state === "grouping" && !myGroup && (
+      {session.state === "grouping" && !myGroup && groups.length === 0 && (
         <p className="mt-8 animate-pulse text-lg text-tatooine-sand/90">
           Squads are being assigned. Stand by.
         </p>
       )}
+
+      {!myGroup &&
+        ((session.state === "grouping" && groups.length > 0) ||
+          session.state === "bracket" ||
+          session.state === "finished") && (
+          <section className="mt-8 w-full rounded-lg border border-tatooine-sand/40 bg-imperial-gray/30 p-5">
+            <p className="text-xs uppercase tracking-widest text-zinc-400">
+              Spectator
+            </p>
+            <p className="mt-2 text-lg text-tatooine-sand/90">
+              Late arrival, pilot — the squads have already launched. Sit back
+              and watch the bracket unfold.
+            </p>
+          </section>
+        )}
 
       {myGroup && (
         <section className="mt-8 w-full rounded-lg border border-saber-blue/30 bg-imperial-gray/30 p-5">

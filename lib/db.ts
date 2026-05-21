@@ -12,6 +12,7 @@ export interface Session {
   group_count: number | null;
   join_base_url: string | null;
   champion_group_id: string | null;
+  match_duration_seconds: number;
   updated_at: string;
 }
 
@@ -37,6 +38,8 @@ export interface Match {
   group_b_id: string | null;
   winner_group_id: string | null;
   next_match_id: string | null;
+  started_at: string | null;
+  duration_seconds: number | null;
 }
 
 // ---------- Helpers ----------

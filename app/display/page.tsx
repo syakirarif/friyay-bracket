@@ -1,10 +1,16 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 
-import { Bracket, type BracketGroup, type BracketMatch } from "@/components/Bracket";
-import { QRJoinCode } from "@/components/QRJoinCode";
+import {
+  Bracket,
+  formatRemaining,
+  useTimeRemaining,
+  type BracketGroup,
+  type BracketMatch,
+} from "@/components/Bracket";
+import { QRJoinCode, useJoinUrl } from "@/components/QRJoinCode";
 import { CHANNELS } from "@/lib/realtime";
 import { getSupabaseBrowser } from "@/lib/supabase/browser";
 
@@ -166,7 +172,7 @@ function LobbyView({ participants }: { participants: Participant[] }) {
       </div>
 
       <div className="my-10 rounded-xl bg-white p-6 shadow-[0_0_50px_-10px_rgba(76,184,255,0.55)]">
-        <QRJoinCode size={420} />
+        <QRJoinCode size={340} />
       </div>
 
       <p className="text-3xl sm:text-4xl">
@@ -279,22 +285,63 @@ function BracketView({ live }: { live: LiveState }) {
   const championMembers = champion
     ? live.participants.filter((p) => p.group_id === champion.id)
     : [];
+  const joinUrl = useJoinUrl();
+
+  const membersByGroup = useMemo(() => {
+    const m = new Map<string, { nickname: string }[]>();
+    for (const p of live.participants) {
+      if (!p.group_id) continue;
+      const list = m.get(p.group_id) ?? [];
+      list.push({ nickname: p.nickname });
+      m.set(p.group_id, list);
+    }
+    return m;
+  }, [live.participants]);
+
+  const runningMatch = useMemo(
+    () =>
+      live.matches.find(
+        (m) => m.started_at !== null && m.winner_group_id === null,
+      ) ?? null,
+    [live.matches],
+  );
 
   return (
-    <div className="relative flex h-screen w-screen flex-col px-8 py-6 text-zinc-100">
-      <header className="flex items-baseline justify-between">
-        <h1 className="text-3xl tracking-tight">FriYAY Bracket</h1>
-        <p className="text-base text-tatooine-sand/80">
-          May the FriYAY be with You!
-        </p>
+    <div className="relative flex h-screen w-screen flex-col px-10 py-8 text-zinc-100">
+      <header className="flex items-start justify-between gap-6">
+        <div>
+          <h1 className="text-5xl tracking-tight">FriYAY Bracket</h1>
+          <p className="mt-2 text-2xl text-tatooine-sand/80">
+            May the FriYAY be with You!
+          </p>
+        </div>
+        <div className="flex flex-col items-center">
+          <div className="rounded-md bg-white p-3 shadow-[0_0_28px_-8px_rgba(76,184,255,0.6)]">
+            <QRJoinCode size={190} showUrl={false} />
+          </div>
+          {joinUrl && (
+            <p className="mt-2 max-w-[280px] break-all text-center text-base text-zinc-300">
+              {joinUrl}
+            </p>
+          )}
+        </div>
       </header>
 
-      <div className="mt-6 flex-1 overflow-hidden">
+      {runningMatch && (
+        <TimerOverlay
+          startedAt={runningMatch.started_at!}
+          durationSeconds={runningMatch.duration_seconds ?? 0}
+          matchId={runningMatch.id}
+        />
+      )}
+
+      <div className="mt-10 flex-1 overflow-auto">
         <Bracket
           mode="display"
           groups={live.groups}
           matches={live.matches}
           championGroupId={live.session.champion_group_id}
+          membersByGroup={membersByGroup}
         />
       </div>
 
@@ -323,6 +370,112 @@ function BracketView({ live }: { live: LiveState }) {
       )}
     </div>
   );
+}
+
+// ---------- Match timer overlay ----------
+
+function TimerOverlay({
+  startedAt,
+  durationSeconds,
+  matchId,
+}: {
+  startedAt: string;
+  durationSeconds: number;
+  matchId: string;
+}) {
+  const remaining = useTimeRemaining(startedAt, durationSeconds);
+  const expired = remaining !== null && remaining <= 0;
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const alarmFiredRef = useRef<string | null>(null);
+
+  // Arm AudioContext on first user gesture so the expiry beep can play
+  // without being blocked by autoplay policy.
+  useEffect(() => {
+    const arm = () => {
+      if (audioCtxRef.current) return;
+      const Ctor: typeof AudioContext | undefined =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctor) return;
+      audioCtxRef.current = new Ctor();
+    };
+    window.addEventListener("pointerdown", arm, { once: true });
+    window.addEventListener("keydown", arm, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("keydown", arm);
+    };
+  }, []);
+
+  // Reset the once-per-match alarm guard whenever a new match starts.
+  useEffect(() => {
+    alarmFiredRef.current = null;
+  }, [matchId]);
+
+  // Fire the alarm exactly once when this match's timer crosses zero.
+  useEffect(() => {
+    if (!expired) return;
+    if (alarmFiredRef.current === matchId) return;
+    alarmFiredRef.current = matchId;
+    playAlarm(audioCtxRef.current);
+  }, [expired, matchId]);
+
+  if (remaining === null) return null;
+
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 text-center">
+      <p className="text-xs uppercase tracking-[0.4em] text-zinc-400">
+        Match clock
+      </p>
+      <p
+        className={`mt-1 font-mono text-7xl tabular-nums ${
+          expired
+            ? "animate-pulse text-saber-red"
+            : remaining <= 10
+              ? "text-saber-red"
+              : "text-saber-blue"
+        }`}
+        style={{
+          textShadow: expired
+            ? "0 0 28px rgba(232, 84, 84, 0.6)"
+            : "0 0 22px rgba(76, 184, 255, 0.45)",
+        }}
+      >
+        {expired ? "00:00" : formatRemaining(remaining)}
+      </p>
+      {expired && (
+        <p className="mt-2 animate-pulse text-2xl font-semibold uppercase tracking-widest text-saber-red">
+          Time's up!
+        </p>
+      )}
+    </div>
+  );
+}
+
+function playAlarm(ctx: AudioContext | null) {
+  if (!ctx) return;
+  const resumed = ctx.state === "suspended" ? ctx.resume() : Promise.resolve();
+  resumed
+    .then(() => {
+      const now = ctx.currentTime;
+      // Three short blips: 880 Hz, ~0.18s each, 0.12s gap.
+      for (let i = 0; i < 3; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 880;
+        osc.type = "square";
+        gain.gain.setValueAtTime(0.0001, now + i * 0.3);
+        gain.gain.exponentialRampToValueAtTime(0.25, now + i * 0.3 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.3 + 0.18);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now + i * 0.3);
+        osc.stop(now + i * 0.3 + 0.2);
+      }
+    })
+    .catch(() => {
+      // Autoplay still blocked — visual alert is enough.
+    });
 }
 
 // ---------- Demo data ----------
@@ -399,6 +552,8 @@ function buildDemo(mode: string): LiveState {
     group_b_id: "g4",
     winner_group_id: state === "finished" ? "g1" : "g1",
     next_match_id: finalId,
+    started_at: null,
+    duration_seconds: null,
   };
   const r1b: BracketMatch = {
     id: "m-r1b",
@@ -408,6 +563,8 @@ function buildDemo(mode: string): LiveState {
     group_b_id: "g3",
     winner_group_id: state === "finished" ? "g2" : "g2",
     next_match_id: finalId,
+    started_at: null,
+    duration_seconds: null,
   };
   const finalMatch: BracketMatch = {
     id: finalId,
@@ -417,6 +574,8 @@ function buildDemo(mode: string): LiveState {
     group_b_id: "g2",
     winner_group_id: state === "finished" ? "g1" : null,
     next_match_id: null,
+    started_at: null,
+    duration_seconds: null,
   };
   const matches = [r1a, r1b, finalMatch];
 
