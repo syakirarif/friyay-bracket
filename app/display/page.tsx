@@ -359,6 +359,12 @@ function BracketView({ live }: { live: LiveState }) {
         >
           🎂 Birthday
         </Link>
+        <Link
+          href="/display/cruise"
+          className="saber-outline-blue rounded-full px-5 py-2 text-sm font-semibold uppercase tracking-widest"
+        >
+          🚢 Cruise
+        </Link>
       </div>
 
       {live.session.state === "finished" && champion && (
