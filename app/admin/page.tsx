@@ -224,6 +224,12 @@ export default function AdminPage() {
             {link.label} ↗
           </a>
         ))}
+        <a
+          href="/display/cruise"
+          className="saber-outline-blue rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-widest"
+        >
+          Cruise Slide
+        </a>
       </nav>
 
       {error && (
